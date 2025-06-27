@@ -1,0 +1,9 @@
+{
+  "name": "desktop-app-backend",
+  "version": "1.0.0",
+  "description": "Desktop application backend using C++",
+  "dependencies": [
+    "cpp-httplib",
+    "nlohmann-json"
+  ]
+} 

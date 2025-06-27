@@ -1,0 +1,49 @@
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# C++后端
+backend/build/
+backend/bin/
+backend/CMakeCache.txt
+backend/CMakeFiles/
+backend/cmake_install.cmake
+backend/Makefile
+backend/*.vcxproj*
+backend/*.sln
+
+# App
+dist/
+
+# vcpkg
+vcpkg/
+vcpkg_installed/
+
+# Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+
+# 日志文件
+*.log
+logs/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 临时文件
+*.tmp
+*.temp
