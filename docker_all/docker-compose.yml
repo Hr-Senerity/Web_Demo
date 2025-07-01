@@ -1,8 +1,8 @@
-version: '3.8'
-
 services:
   web-demo:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker_all/Dockerfile
     container_name: web-demo
     restart: unless-stopped
     environment:

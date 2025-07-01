@@ -4,14 +4,148 @@ set -e
 echo "🐳 Web Demo - Docker 一键部署"
 echo "================================"
 
+# 自动安装Docker和Docker Compose插件
+install_docker() {
+    echo "🔧 开始自动安装Docker..."
+    
+    # 检测操作系统
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+    else
+        echo "❌ 无法检测操作系统"
+        exit 1
+    fi
+    
+    case $OS in
+        ubuntu|debian)
+            echo "📦 检测到 $OS 系统，开始安装..."
+            
+            # 更新包管理器
+            apt-get update
+            
+            # 安装依赖包
+            apt-get install -y \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release \
+                apt-transport-https \
+                software-properties-common
+            
+            # 尝试多个Docker源（国内优先）
+            echo "🇨🇳 尝试使用阿里云Docker源..."
+            if curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/$OS/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg 2>/dev/null; then
+                echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://mirrors.aliyun.com/docker-ce/linux/$OS $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+                apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            else
+                # 备用：清华源
+                echo "🇨🇳 尝试使用清华源..."
+                if curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/$OS/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg 2>/dev/null; then
+                    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/$OS $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+                    apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+                else
+                    # 最后：使用官方便携包（无需网络下载）
+                    echo "🌍 使用离线安装方式..."
+                    apt-get install -y docker.io docker-compose-plugin || \
+                    # 如果官方包也不行，提示手动安装
+                    (echo "❌ 自动安装失败，请检查网络连接或手动安装"
+                     echo "🔧 手动安装命令："
+                     echo "   sudo apt update"
+                     echo "   sudo apt install docker.io docker-compose-plugin"
+                     exit 1)
+                fi
+            fi
+            ;;
+        centos|rhel|fedora)
+            echo "📦 检测到 $OS 系统，开始安装..."
+            
+            # 安装依赖
+            yum install -y yum-utils device-mapper-persistent-data lvm2
+            
+            # 添加Docker仓库（国内优先）
+            echo "🇨🇳 尝试使用阿里云Docker源..."
+            if yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo 2>/dev/null; then
+                yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            else
+                # 备用：使用系统默认源
+                echo "🌍 使用系统默认源..."
+                yum install -y docker docker-compose-plugin || \
+                (echo "❌ 自动安装失败，请检查网络连接或手动安装"
+                 exit 1)
+            fi
+            ;;
+        *)
+            echo "❌ 不支持的操作系统: $OS"
+            echo "🔧 请手动安装Docker和Docker Compose插件"
+            exit 1
+            ;;
+    esac
+    
+    # 启动Docker服务（处理systemctl可能失败的情况）
+    echo "🔄 启动Docker服务..."
+    if command -v systemctl &> /dev/null; then
+        # 尝试使用systemctl
+        if systemctl enable docker 2>/dev/null && systemctl start docker 2>/dev/null; then
+            echo "✅ Docker服务启动成功"
+        else
+            echo "⚠️  systemctl启动失败，尝试其他方式..."
+            # 尝试直接启动Docker守护进程
+            if command -v dockerd &> /dev/null; then
+                dockerd &> /dev/null &
+                sleep 3
+                echo "✅ Docker守护进程已在后台启动"
+            else
+                echo "⚠️  Docker服务启动失败，这可能在某些环境中是正常的"
+                echo "   如果是容器环境或特殊平台，可能需要手动启动"
+            fi
+        fi
+    else
+        echo "⚠️  systemctl不可用，跳过服务启动"
+        echo "   在某些环境中这是正常的（如容器内、WSL等）"
+    fi
+    
+    # 验证Docker是否可用
+    sleep 2
+    if docker version &> /dev/null; then
+        echo "✅ Docker命令可用"
+    else
+        echo "⚠️  Docker命令不可用，可能需要重新登录或手动启动服务"
+        echo "🔧 故障排除："
+        echo "   sudo systemctl status docker"
+        echo "   sudo systemctl start docker"
+        echo "   sudo dockerd"
+    fi
+    
+    # 添加当前用户到docker组（如果不是root）
+    if [ "$EUID" -ne 0 ] && [ -n "$SUDO_USER" ]; then
+        usermod -aG docker $SUDO_USER
+        echo "⚠️  用户 $SUDO_USER 已添加到docker组，请重新登录后再运行脚本"
+        exit 0
+    fi
+    
+    echo "✅ Docker和Docker Compose插件安装完成"
+}
+
 # 检查Docker环境
 check_docker() {
     if ! command -v docker &> /dev/null; then
         echo "❌ Docker未安装"
-        echo "🔧 安装Docker (Ubuntu/Debian):"
-        echo "   curl -fsSL https://get.docker.com | sh"
-        echo "   sudo usermod -aG docker \$USER"
-        exit 1
+        read -p "🤔 是否自动安装Docker和Docker Compose插件？(Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            install_docker
+        else
+            echo "🔧 请手动安装Docker和Docker Compose插件:"
+            echo "   # 阿里云源（推荐）"
+            echo "   curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | sudo apt-key add -"
+            echo "   sudo add-apt-repository \"deb [arch=amd64] https://mirrors.aliyun.com/docker-ce/linux/ubuntu \$(lsb_release -cs) stable\""
+            echo "   sudo apt update && sudo apt install docker-ce docker-compose-plugin"
+            echo ""
+            echo "   # 或者系统包"
+            echo "   sudo apt update && sudo apt install docker.io docker-compose-plugin"
+            exit 1
+        fi
     fi
 
     if ! docker info &> /dev/null 2>&1; then
@@ -19,7 +153,28 @@ check_docker() {
         exit 1
     fi
 
-    echo "✅ Docker环境检查通过"
+    # 检测Docker Compose插件
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker compose"
+        echo "✅ 检测到Docker Compose插件"
+    else
+        echo "❌ Docker Compose插件未安装"
+        echo "🔧 安装Docker Compose插件:"
+        echo "   # 方法1: 使用包管理器安装插件版本（推荐）"
+        echo "   sudo apt update && sudo apt install docker-compose-plugin"
+        echo ""
+        echo "   # 方法2: 手动安装Compose插件"
+        echo "   DOCKER_CONFIG=\${DOCKER_CONFIG:-\$HOME/.docker}"
+        echo "   mkdir -p \$DOCKER_CONFIG/cli-plugins"
+        echo "   curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o \$DOCKER_CONFIG/cli-plugins/docker-compose"
+        echo "   chmod +x \$DOCKER_CONFIG/cli-plugins/docker-compose"
+        echo ""
+        echo "   # 方法3: 安装最新版Docker (自带Compose插件)"
+        echo "   curl -fsSL https://get.docker.com | sudo sh"
+        exit 1
+    fi
+
+    echo "✅ Docker环境检查通过，使用命令: $DOCKER_COMPOSE_CMD"
 }
 
 # 配置Docker镜像源
@@ -145,7 +300,7 @@ deploy_app() {
     
     # 停止现有容器
     echo "🛑 停止现有容器..."
-    docker compose down 2>/dev/null || true
+    $DOCKER_COMPOSE_CMD down 2>/dev/null || true
     
     # 清理选项
     read -p "是否清理旧镜像? (y/N): " cleanup
@@ -156,11 +311,11 @@ deploy_app() {
     
     # 构建镜像
     echo "🔨 构建Docker镜像..."
-    docker compose build --no-cache
+    $DOCKER_COMPOSE_CMD build --no-cache
     
     # 启动服务
     echo "🚀 启动服务..."
-    docker compose up -d
+    $DOCKER_COMPOSE_CMD up -d
     
     # 等待启动
     echo "⏳ 等待服务启动..."
@@ -168,7 +323,7 @@ deploy_app() {
     
     # 健康检查
     echo "🧪 服务健康检查..."
-    if docker compose ps | grep -q "Up"; then
+    if $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
         echo "✅ 容器启动成功"
         
         # API测试
@@ -193,7 +348,7 @@ deploy_app() {
         fi
     else
         echo "❌ 容器启动失败"
-        docker compose logs
+        $DOCKER_COMPOSE_CMD logs
         exit 1
     fi
 }
@@ -224,15 +379,15 @@ show_result() {
     
     echo ""
     echo "📝 常用命令:"
-    echo "   查看状态: docker compose ps"
-    echo "   查看日志: docker compose logs -f"
-    echo "   重启服务: docker compose restart"
-    echo "   停止服务: docker compose down"
-    echo "   更新重启: docker compose up -d --build"
+    echo "   查看状态: $DOCKER_COMPOSE_CMD ps"
+    echo "   查看日志: $DOCKER_COMPOSE_CMD logs -f"
+    echo "   重启服务: $DOCKER_COMPOSE_CMD restart"
+    echo "   停止服务: $DOCKER_COMPOSE_CMD down"
+    echo "   更新重启: $DOCKER_COMPOSE_CMD up -d --build"
     
     echo ""
     echo "📊 当前状态:"
-    docker compose ps
+    $DOCKER_COMPOSE_CMD ps
 }
 
 # 主函数
