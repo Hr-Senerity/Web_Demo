@@ -281,6 +281,14 @@ build_backend() {
 # 多阶段构建后端
 FROM ubuntu:22.04 as builder
 
+# 设置时区和语言环境
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+
+# 配置apt使用国内镜像源
+RUN sed -i 's@//.*archive.ubuntu.com@//mirrors.aliyun.com@g' /etc/apt/sources.list && \
+    sed -i 's@//.*security.ubuntu.com@//mirrors.aliyun.com@g' /etc/apt/sources.list
+
 # 安装构建依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -288,30 +296,81 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     pkg-config \
+    libcurl4-openssl-dev \
+    libjsoncpp-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装vcpkg
+# 配置git使用国内镜像
+RUN git config --global url."https://gitee.com/mirrors/vcpkg.git".insteadOf "https://github.com/Microsoft/vcpkg.git" || \
+    git config --global url."https://hub.fastgit.xyz/Microsoft/vcpkg.git".insteadOf "https://github.com/Microsoft/vcpkg.git"
+
+# 安装vcpkg (使用国内镜像)
 WORKDIR /vcpkg
-RUN git clone https://github.com/Microsoft/vcpkg.git . && \
+RUN git clone https://gitee.com/mirrors/vcpkg.git . 2>/dev/null || \
+    git clone https://hub.fastgit.xyz/Microsoft/vcpkg.git . 2>/dev/null || \
+    git clone https://github.com/Microsoft/vcpkg.git . && \
     ./bootstrap-vcpkg.sh
 
-# 安装C++依赖
-RUN ./vcpkg install cpp-httplib nlohmann-json
+# 安装C++依赖 (如果vcpkg安装失败，使用系统包)
+RUN ./vcpkg install cpp-httplib nlohmann-json 2>/dev/null || \
+    (echo "vcpkg安装失败，使用系统包..." && \
+     apt-get update && \
+     apt-get install -y nlohmann-json3-dev && \
+     rm -rf /var/lib/apt/lists/*)
 
 # 复制源代码
 WORKDIR /app
 COPY . .
 
+# 创建简化的CMakeLists.txt (如果vcpkg失败则使用系统库)
+RUN if [ ! -d "/vcpkg/installed" ]; then \
+        echo "使用系统库构建..." && \
+        cat > CMakeLists.txt << 'CMAKEEOF'
+cmake_minimum_required(VERSION 3.16)
+project(backend)
+
+set(CMAKE_CXX_STANDARD 17)
+
+# 查找系统库
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP jsoncpp)
+
+# 包含目录
+include_directories(include)
+
+# 源文件
+file(GLOB_RECURSE SOURCES "src/*.cpp")
+
+# 创建可执行文件
+add_executable(backend ${SOURCES})
+
+# 链接库
+target_link_libraries(backend ${JSONCPP_LIBRARIES} pthread)
+
+# 设置输出目录
+set_target_properties(backend PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+CMAKEEOF
+    fi
+
 # 构建项目
-RUN mkdir build && cd build && \
-    cmake .. -DCMAKE_TOOLCHAIN_FILE=/vcpkg/scripts/buildsystems/vcpkg.cmake && \
+RUN mkdir -p build && cd build && \
+    (cmake .. -DCMAKE_TOOLCHAIN_FILE=/vcpkg/scripts/buildsystems/vcpkg.cmake 2>/dev/null || cmake ..) && \
     make -j$(nproc)
 
 # 生产阶段
 FROM ubuntu:22.04
 
+# 设置时区
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y \
+    libcurl4 \
+    libjsoncpp25 \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制构建产物
