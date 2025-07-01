@@ -1,0 +1,33 @@
+# Web Demo Docker 部署配置
+# 复制此文件为 .env 并根据实际情况修改
+
+# ====== 基础配置 ======
+# 服务器主机名或IP地址
+NGINX_HOST=localhost
+
+# API基础URL
+API_BASE_URL=http://localhost
+
+# ====== SSL配置 ======
+# SSL模式: none(HTTP) | custom(自签名) | letsencrypt(Let's Encrypt)
+SSL_MODE=none
+
+# ====== 调试选项 ======
+# 是否启用调试模式
+DEBUG=false
+
+# ====== 配置示例 ======
+# 1. HTTP访问 (开发环境):
+#    NGINX_HOST=localhost
+#    API_BASE_URL=http://localhost  
+#    SSL_MODE=none
+
+# 2. HTTPS + 自签名证书 (仅IP):
+#    NGINX_HOST=192.168.1.100
+#    API_BASE_URL=https://192.168.1.100
+#    SSL_MODE=custom
+
+# 3. HTTPS + Let's Encrypt (域名):
+#    NGINX_HOST=example.com
+#    API_BASE_URL=https://example.com
+#    SSL_MODE=letsencrypt 

@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  web-demo:
+    build: .
+    container_name: web-demo
+    restart: unless-stopped
+    environment:
+      # 主机配置
+      - NGINX_HOST=${NGINX_HOST:-localhost}
+      - SSL_MODE=${SSL_MODE:-none}
+      - DEBUG=${DEBUG:-false}
+      # API配置
+      - API_BASE_URL=${API_BASE_URL:-http://localhost}
+      - NODE_ENV=production
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # 可选：直接访问后端
+    volumes:
+      # 数据持久化
+      - app-data:/app/data
+      - app-logs:/app/logs
+      # SSL证书 (可选)
+      - ../ssl:/etc/nginx/ssl:ro
+    networks:
+      - web-demo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  app-data:
+    driver: local
+  app-logs:
+    driver: local
+
+networks:
+  web-demo-network:
+    driver: bridge 
