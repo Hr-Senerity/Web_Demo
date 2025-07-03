@@ -11,7 +11,7 @@ WORKDIR /app/backend
 RUN sed -i 's@http://deb.debian.org@https://mirrors.aliyun.com@g' /etc/apt/sources.list && \
     sed -i 's@http://security.debian.org@https://mirrors.aliyun.com@g' /etc/apt/sources.list
 
-# 安装系统依赖
+# 安装系统依赖和C++库
 RUN apt-get update && apt-get install -y \
     cmake \
     build-essential \
@@ -24,23 +24,15 @@ RUN apt-get update && apt-get install -y \
     tar \
     libssl-dev \
     zlib1g-dev \
+    nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 设置vcpkg环境变量
-ENV VCPKG_ROOT=/opt/vcpkg
-ENV CMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake
-
-# 安装vcpkg包管理器（按照原有方式）
-RUN echo "📦 配置vcpkg包管理器..." && \
-    git clone https://github.com/Microsoft/vcpkg.git ${VCPKG_ROOT} && \
-    cd ${VCPKG_ROOT} && \
-    ./bootstrap-vcpkg.sh
-
-# 安装C++依赖包
-RUN echo "📦 安装C++依赖包..." && \
-    cd ${VCPKG_ROOT} && \
-    ./vcpkg install cpp-httplib nlohmann-json
-
+# 安装cpp-httplib (header-only库)
+# 由于Debian 11没有cpp-httplib包，我们手动下载header文件
+RUN echo "📦 安装cpp-httplib (header-only)..." && \
+    curl -L -o /usr/local/include/httplib.h \
+    https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h && \
+    echo "✅ cpp-httplib安装完成"
 
 # 复制后端源码并构建
 COPY backend/ ./
@@ -49,7 +41,6 @@ RUN echo "🔧 编译后端..." && \
     mkdir build && cd build && \
     echo "配置CMake..." && \
     cmake .. \
-        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE} \
         -DCMAKE_BUILD_TYPE=Release && \
     echo "编译中..." && \
     make -j$(nproc) && \

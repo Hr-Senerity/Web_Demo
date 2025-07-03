@@ -25,30 +25,41 @@ if ! command -v curl &> /dev/null; then
     sudo apt update && sudo apt install -y curl
 fi
 
-echo "✅ 系统依赖检查完成"
-
-# 安装配置vcpkg
-echo "📦 配置vcpkg包管理器..."
-if [ ! -d "vcpkg" ]; then
-    echo "克隆vcpkg..."
-    git clone https://github.com/Microsoft/vcpkg.git
-    cd vcpkg
-    ./bootstrap-vcpkg.sh
-    cd ..
-else
-    echo "vcpkg已存在，更新中..."
-    cd vcpkg
-    git pull
-    cd ..
+if ! command -v pkg-config &> /dev/null; then
+    echo "安装pkg-config..."
+    sudo apt update && sudo apt install -y pkg-config
 fi
 
-# 安装C++依赖包
-echo "📦 安装C++依赖包..."
-cd vcpkg
-./vcpkg install cpp-httplib nlohmann-json
-cd ..
+echo "✅ 系统依赖检查完成"
 
-echo "✅ 依赖包安装完成"
+# 安装C++依赖库
+echo "📦 安装C++依赖库..."
+
+# 检查并安装nlohmann-json
+if ! pkg-config --exists nlohmann_json; then
+    echo "安装nlohmann-json..."
+    sudo apt update && sudo apt install -y nlohmann-json3-dev
+else
+    echo "✅ nlohmann-json已安装"
+fi
+
+# 检查并安装cpp-httplib (header-only)
+if [ ! -f "/usr/local/include/httplib.h" ] && [ ! -f "/usr/include/httplib.h" ]; then
+    echo "安装cpp-httplib (header-only)..."
+    # 尝试系统包（仅在较新的Ubuntu版本中可用）
+    if sudo apt install -y libcpp-httplib-dev 2>/dev/null; then
+        echo "✅ 使用系统包安装cpp-httplib"
+    else
+        echo "📦 手动下载cpp-httplib header文件..."
+        sudo curl -L -o /usr/local/include/httplib.h \
+            https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h
+        echo "✅ cpp-httplib安装完成"
+    fi
+else
+    echo "✅ cpp-httplib已安装"
+fi
+
+echo "✅ C++依赖库安装完成"
 
 # 编译后端
 echo "🔧 编译后端..."
@@ -58,10 +69,9 @@ cd ../backend
 rm -rf build
 mkdir build && cd build
 
-# 配置CMake - 使用vcpkg工具链
+# 配置CMake - 不再需要vcpkg工具链
 echo "配置CMake..."
 cmake .. \
-    -DCMAKE_TOOLCHAIN_FILE=../../scripts/vcpkg/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release
 
 # 编译
