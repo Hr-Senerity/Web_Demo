@@ -1,8 +1,53 @@
 #!/bin/bash
 set -e
 
-echo "🚀 前端Docker部署脚本"
+echo "🐧 Linux系统 - 前端Docker部署脚本"
 echo "基于React + TypeScript + Vite + Docker + Nginx"
+echo "支持: Ubuntu, Debian, CentOS, RHEL, Fedora, Arch, Manjaro"
+
+# ==========================================
+# Linux 系统专用前端部署脚本
+# ==========================================
+
+# 自动修复Windows行结束符问题
+fix_line_endings() {
+    local file="$1"
+    if [ -f "$file" ] && grep -q $'\r' "$file" 2>/dev/null; then
+        echo "🔧 修复Windows行结束符: $file"
+        cp "$file" "$file.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+        sed -i 's/\r$//' "$file"
+        return 0
+    fi
+    return 1
+}
+
+# 检测Linux发行版
+detect_linux_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+        VERSION=$VERSION_ID
+    else
+        DISTRO="unknown"
+        VERSION="unknown"
+    fi
+    
+    echo "🐧 检测到Linux发行版: $DISTRO $VERSION"
+}
+
+# 初始化Linux环境
+echo "🔍 初始化Linux环境..."
+
+# 修复可能的行结束符问题
+fix_line_endings "$0"
+for file in .env .env.production package.json; do
+    [ -f "$file" ] && fix_line_endings "$file" || true
+done
+
+# 检测系统
+detect_linux_distro
+
+echo "✅ Linux环境初始化完成"
 
 # 检查环境要求
 echo "📋 检查环境要求..."
@@ -23,12 +68,22 @@ fi
 echo "✅ Docker环境检查通过"
 
 # 检查Docker Compose
-if ! command -v docker-compose &> /dev/null; then
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+    echo "✅ 检测到Docker Compose插件"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+    echo "✅ 检测到独立版Docker Compose"
+else
     echo "❌ Docker Compose未安装"
+    echo "💡 Linux安装命令:"
+    echo "   Ubuntu/Debian: sudo apt install docker-compose-plugin"
+    echo "   CentOS/RHEL: sudo yum install docker-compose-plugin"
+    echo "   或独立版: sudo apt install docker-compose"
     exit 1
 fi
 
-echo "✅ Docker Compose检查通过"
+echo "✅ Docker Compose检查通过，使用命令: $DOCKER_COMPOSE_CMD"
 
 # 检查项目结构
 echo "📁 检查项目结构..."
@@ -129,7 +184,7 @@ fi
 
 echo "   替换目标: Server_IP -> $SERVER_IP"
 
-# 替换nginx.conf中的Server_IP
+# 替换nginx.conf中的Server_IP（Linux sed命令）
 sed -i "s/Server_IP:80/$SERVER_IP:$PROXY_PORT/g" nginx.conf
 sed -i "s/proxy_set_header Host Server_IP/proxy_set_header Host $SERVER_IP/g" nginx.conf
 
@@ -144,14 +199,14 @@ echo "✅ 配置文件占位符替换完成"
 
 # 清理旧容器
 echo "🧹 清理旧容器和镜像..."
-docker-compose down 2>/dev/null || true
+$DOCKER_COMPOSE_CMD down 2>/dev/null || true
 docker system prune -f
 
 # 构建Docker镜像
 echo "🔧 构建Docker镜像..."
 echo "这可能需要几分钟时间，请耐心等待..."
 
-if ! docker-compose build; then
+if ! $DOCKER_COMPOSE_CMD build; then
     echo "❌ Docker镜像构建失败"
     echo "请检查Docker配置和网络连接"
     exit 1
@@ -161,7 +216,7 @@ echo "✅ Docker镜像构建成功"
 
 # 启动容器
 echo "🚀 启动前端容器..."
-if ! docker-compose up -d; then
+if ! $DOCKER_COMPOSE_CMD up -d; then
     echo "❌ 容器启动失败"
     exit 1
 fi
@@ -172,10 +227,10 @@ sleep 5
 
 # 检查容器状态
 echo "📊 检查容器状态..."
-if ! docker-compose ps | grep -q "Up"; then
+if ! $DOCKER_COMPOSE_CMD ps | grep -q "Up"; then
     echo "❌ 容器未正常启动"
     echo "查看日志:"
-    docker-compose logs
+    $DOCKER_COMPOSE_CMD logs
     exit 1
 fi
 
@@ -198,7 +253,7 @@ if curl -s http://localhost:3000 >/dev/null 2>&1; then
 else
     echo "❌ 前端应用访问失败"
     echo "查看容器日志:"
-    docker-compose logs frontend
+    $DOCKER_COMPOSE_CMD logs frontend
     exit 1
 fi
 
@@ -209,15 +264,15 @@ echo "================================"
 echo "🌐 应用地址: http://localhost:3000"
 echo "🏥 健康检查: http://localhost:3000/health"
 echo "📊 容器状态:"
-docker-compose ps
+$DOCKER_COMPOSE_CMD ps
 
 echo ""
 echo "🔧 管理命令:"
-echo "   查看日志: docker-compose logs frontend"
-echo "   停止服务: docker-compose down"
-echo "   重启服务: docker-compose restart"
-echo "   重新构建: docker-compose down && docker-compose build && docker-compose up -d"
-echo "   进入容器: docker-compose exec frontend sh"
+echo "   查看日志: $DOCKER_COMPOSE_CMD logs frontend"
+echo "   停止服务: $DOCKER_COMPOSE_CMD down"
+echo "   重启服务: $DOCKER_COMPOSE_CMD restart"
+echo "   重新构建: $DOCKER_COMPOSE_CMD down && $DOCKER_COMPOSE_CMD build && $DOCKER_COMPOSE_CMD up -d"
+echo "   进入容器: $DOCKER_COMPOSE_CMD exec frontend sh"
 echo ""
 echo "📝 注意事项:"
 echo "   - 前端应用运行在端口 3000"
@@ -230,6 +285,12 @@ echo "   cd frontend"
 echo "   mv nginx.conf.backup nginx.conf"
 echo "   mv src/config/api.ts.backup src/config/api.ts"
 echo "   mv docker-compose.yml.backup docker-compose.yml"
+echo ""
+echo "🐧 Linux系统说明:"
+echo "   前端已在Linux系统Docker容器中部署完成"
+echo "   访问地址: http://localhost:3000"
+echo "   如果是云服务器，请确保3000端口已开放"
+echo "   容器管理命令均为Linux标准systemd/Docker命令"
 echo "================================"
 
 cd .. 

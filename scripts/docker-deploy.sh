@@ -234,7 +234,7 @@ setup_environment() {
     for file in .env env-template; do
         if fix_line_endings "$file"; then
             FIXED_ANY=true
-        fi
+        fi || true  # 避免函数返回值导致脚本退出
     done
     
     if [ "$FIXED_ANY" = "true" ]; then
@@ -298,19 +298,35 @@ EOF
     else
         echo "✅ 使用现有 .env 配置"
         # 使用现有配置时也要确保格式正确
-        fix_line_endings ".env"
+        fix_line_endings ".env" || true
     fi
     
     # 显示当前配置
     echo ""
     echo "📋 当前配置:"
-    grep -E "^[A-Z]" .env | while read line; do
-        echo "   $line"
-    done
+    if [ -f ".env" ]; then
+        # 避免管道操作导致的退出问题
+        ENV_CONTENT=$(grep -E "^[A-Z]" .env 2>/dev/null || echo "")
+        if [ -n "$ENV_CONTENT" ]; then
+            # 使用while read避免子shell问题
+            while IFS= read -r line; do
+                echo "   $line"
+            done <<< "$ENV_CONTENT"
+        else
+            echo "   (暂无配置项显示)"
+        fi
+    else
+        echo "   ❌ .env文件不存在"
+    fi
+    echo ""
+    echo "✅ 环境配置完成，继续部署..."
+    echo "🔄 准备进入下一阶段: SSL证书配置..."
 }
 
 # SSL证书处理
 handle_ssl_certificates() {
+    echo "🔒 开始SSL证书配置检查..."
+    
     # 确保.env文件格式正确后再source
     if [ -f ".env" ]; then
         source .env
@@ -375,7 +391,18 @@ deploy_app() {
     
     # 构建镜像
     echo "🔨 构建Docker镜像..."
-    $DOCKER_COMPOSE_CMD build --no-cache
+    echo "💡 提示: 如果网络较慢，构建可能需要10-20分钟，请耐心等待..."
+    
+    # 检测网络速度并选择构建策略
+    echo "🌐 检测网络状况..."
+    if timeout 10 curl -s http://mirrors.aliyun.com > /dev/null 2>&1; then
+        echo "✅ 网络连接正常，开始构建..."
+        $DOCKER_COMPOSE_CMD build --no-cache
+    else
+        echo "⚠️  网络较慢，使用优化构建..."
+        # 使用缓存和并行构建
+        $DOCKER_COMPOSE_CMD build --progress=plain
+    fi
     
     # 启动服务
     echo "🚀 启动服务..."

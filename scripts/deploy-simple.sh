@@ -1,34 +1,165 @@
 #!/bin/bash
 set -e
 
-echo "🚀 一键部署C++后端服务"
+echo "🐧 Linux系统 - C++后端一键部署"
+echo "支持: Ubuntu, Debian, CentOS, RHEL, Fedora, Arch, Manjaro"
 
-# 检查并安装系统依赖
-echo "📋 检查系统依赖..."
-if ! command -v cmake &> /dev/null; then
-    echo "安装CMake..."
-    sudo apt update && sudo apt install -y cmake
+# ==========================================
+# Linux 系统专用后端部署脚本
+# ==========================================
+
+# 自动修复Windows行结束符问题
+fix_line_endings() {
+    local file="$1"
+    if [ -f "$file" ] && grep -q $'\r' "$file" 2>/dev/null; then
+        echo "🔧 修复Windows行结束符: $file"
+        cp "$file" "$file.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+        sed -i 's/\r$//' "$file"
+        echo "   ✅ $file 行结束符已修复"
+    else
+        echo "   ✅ $file 格式正常"
+    fi
+    return 0
+}
+
+# 检测Linux发行版
+detect_linux_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO=$ID
+        VERSION=$VERSION_ID
+    elif [ -f /etc/debian_version ]; then
+        DISTRO="debian"
+        VERSION=$(cat /etc/debian_version)
+    elif [ -f /etc/redhat-release ]; then
+        DISTRO="centos"
+        VERSION=$(grep -o '[0-9]\+' /etc/redhat-release | head -1)
+    else
+        DISTRO="unknown"
+        VERSION="unknown"
+    fi
+    
+    echo "🐧 检测到Linux发行版: $DISTRO $VERSION"
+    
+    # 确保变量被设置
+    if [ -z "$DISTRO" ]; then
+        echo "❌ 未能检测到Linux发行版"
+        exit 1
+    fi
+}
+
+# 设置包管理器
+setup_package_manager() {
+    echo "   检测发行版: $DISTRO"
+    
+    case $DISTRO in
+        ubuntu|debian)
+            PKG_UPDATE="apt-get update"
+            PKG_INSTALL="apt-get install -y"
+            CMAKE_PKG="cmake"
+            BUILD_PKG="build-essential"
+            GIT_PKG="git"
+            CURL_PKG="curl"
+            PKGCONFIG_PKG="pkg-config"
+            JSON_PKG="nlohmann-json3-dev"
+            NGINX_PKG="nginx"
+            ;;
+        centos|rhel|fedora)
+            if command -v dnf >/dev/null 2>&1; then
+                PKG_UPDATE="dnf update -y"
+                PKG_INSTALL="dnf install -y"
+            else
+                PKG_UPDATE="yum update -y"
+                PKG_INSTALL="yum install -y"
+            fi
+            CMAKE_PKG="cmake"
+            BUILD_PKG="gcc-c++ make"
+            GIT_PKG="git"
+            CURL_PKG="curl"
+            PKGCONFIG_PKG="pkgconfig"
+            JSON_PKG="nlohmann-json-devel"
+            NGINX_PKG="nginx"
+            ;;
+        arch|manjaro)
+            PKG_UPDATE="pacman -Sy"
+            PKG_INSTALL="pacman -S --noconfirm"
+            CMAKE_PKG="cmake"
+            BUILD_PKG="base-devel"
+            GIT_PKG="git"
+            CURL_PKG="curl"
+            PKGCONFIG_PKG="pkgconf"
+            JSON_PKG="nlohmann-json"
+            NGINX_PKG="nginx"
+            ;;
+        *)
+            echo "❌ 不支持的Linux发行版: $DISTRO"
+            echo "💡 支持的发行版: Ubuntu, Debian, CentOS, RHEL, Fedora, Arch, Manjaro"
+            exit 1
+            ;;
+    esac
+    
+    echo "📦 使用包管理器: ${PKG_INSTALL%% *}"
+}
+
+# 初始化环境
+echo "🔍 初始化Linux环境..."
+
+# 修复可能的行结束符问题
+echo "📝 检查脚本格式..."
+fix_line_endings "$0" || true
+for file in .env env-template; do
+    [ -f "$file" ] && fix_line_endings "$file" || true
+done
+
+# 检测系统
+echo "🕵️  检测Linux发行版..."
+detect_linux_distro
+
+echo "⚙️  配置包管理器..."
+setup_package_manager
+
+# 系统检查
+echo "🔍 Linux环境检查..."
+
+# 检查sudo权限
+if ! sudo -n true 2>/dev/null; then
+    echo "⚠️  需要sudo权限安装系统包，如提示请输入密码"
 fi
 
-if ! command -v make &> /dev/null; then
-    echo "安装构建工具..."
-    sudo apt update && sudo apt install -y build-essential
+# 检查网络连接
+if ! curl -s --connect-timeout 5 http://www.baidu.com >/dev/null 2>&1; then
+    echo "⚠️  网络连接较慢，安装可能需要更长时间"
 fi
 
-if ! command -v git &> /dev/null; then
-    echo "安装Git..."
-    sudo apt update && sudo apt install -y git
-fi
+echo "✅ Linux环境检查完成"
 
-if ! command -v curl &> /dev/null; then
-    echo "安装Curl..."
-    sudo apt update && sudo apt install -y curl
-fi
+# 检查并安装Linux系统依赖
+echo "📋 检查Linux系统依赖..."
 
-if ! command -v pkg-config &> /dev/null; then
-    echo "安装pkg-config..."
-    sudo apt update && sudo apt install -y pkg-config
-fi
+# 更新包管理器
+echo "🔄 更新包管理器..."
+sudo $PKG_UPDATE >/dev/null 2>&1 || true
+
+# 安装函数
+install_if_missing() {
+    local cmd="$1"
+    local package="$2"
+    local display_name="$3"
+    
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "📦 安装 $display_name..."
+        sudo $PKG_INSTALL $package
+    else
+        echo "✅ $display_name 已安装"
+    fi
+}
+
+# 安装必要的系统依赖
+install_if_missing "cmake" "$CMAKE_PKG" "CMake"
+install_if_missing "make" "$BUILD_PKG" "构建工具"
+install_if_missing "git" "$GIT_PKG" "Git"
+install_if_missing "curl" "$CURL_PKG" "Curl"
+install_if_missing "pkg-config" "$PKGCONFIG_PKG" "pkg-config"
 
 echo "✅ 系统依赖检查完成"
 
@@ -44,31 +175,74 @@ fi
 # 安装C++依赖库
 echo "📦 安装C++依赖库..."
 
-# 检查并安装nlohmann-json
-if ! pkg-config --exists nlohmann_json; then
-    echo "安装nlohmann-json..."
-    sudo apt update && sudo apt install -y nlohmann-json3-dev
+# 安装nlohmann-json
+if ! pkg-config --exists nlohmann_json 2>/dev/null; then
+    echo "📦 安装nlohmann-json JSON库..."
+    sudo $PKG_INSTALL $JSON_PKG
+    
+    # 验证安装（某些发行版包名可能不同）
+    if ! pkg-config --exists nlohmann_json 2>/dev/null; then
+        echo "⚠️  pkg-config未检测到nlohmann-json，检查系统头文件..."
+        # 检查常见的头文件位置
+        if [ -f "/usr/include/nlohmann/json.hpp" ] || [ -f "/usr/local/include/nlohmann/json.hpp" ]; then
+            echo "✅ 在系统路径找到nlohmann-json头文件"
+        else
+            echo "❌ 未找到nlohmann-json，请手动安装"
+            exit 1
+        fi
+    fi
 else
     echo "✅ nlohmann-json已安装"
 fi
 
 # 检查cpp-httplib (header-only) - 现在使用项目本地文件
-# 注意：脚本从scripts目录运行，所以使用相对路径
+# 自动检测脚本运行路径
 if [ -f "../backend/include/httplib.h" ]; then
+    # 从scripts目录运行
+    HTTPLIB_PATH="../backend/include/httplib.h"
+    echo "✅ cpp-httplib (使用项目本地文件: backend/include/httplib.h)"
+elif [ -f "./backend/include/httplib.h" ]; then
+    # 从项目根目录运行
+    HTTPLIB_PATH="./backend/include/httplib.h" 
     echo "✅ cpp-httplib (使用项目本地文件: backend/include/httplib.h)"
 else
     echo "❌ 未找到cpp-httplib header文件"
-    echo "💡 请确保 httplib.h 文件存在于 backend/include/ 目录中"
-    echo "   可以从以下地址下载:"
-    echo "   curl -L -o ../backend/include/httplib.h https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h"
-    exit 1
+    echo "💡 当前目录: $(pwd)"
+    echo "💡 查找路径: ../backend/include/httplib.h 和 ./backend/include/httplib.h"
+    
+    # 尝试自动下载到合适的位置
+    if [ -d "./backend/include" ]; then
+        DOWNLOAD_PATH="./backend/include/httplib.h"
+    elif [ -d "../backend/include" ]; then
+        DOWNLOAD_PATH="../backend/include/httplib.h"
+    else
+        echo "❌ 未找到backend/include目录"
+        exit 1
+    fi
+    
+    echo "🔄 尝试自动下载 httplib.h 到 $DOWNLOAD_PATH..."
+    if curl -L -o "$DOWNLOAD_PATH" "https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h" 2>/dev/null; then
+        echo "✅ httplib.h 下载成功"
+    else
+        echo "❌ 自动下载失败，请手动下载:"
+        echo "   curl -L -o $DOWNLOAD_PATH https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h"
+        exit 1
+    fi
 fi
 
 echo "✅ C++依赖库安装完成"
 
 # 编译后端
 echo "🔧 编译后端..."
-cd ../backend
+# 根据检测到的路径进入后端目录
+if [ -d "../backend" ]; then
+    cd ../backend
+elif [ -d "./backend" ]; then
+    cd ./backend
+else
+    echo "❌ 未找到backend目录"
+    exit 1
+fi
 
 # 清理旧构建
 rm -rf build
@@ -81,7 +255,10 @@ cmake .. \
 
 # 编译
 echo "编译中..."
-make -j$(nproc)
+# Linux系统获取CPU核心数
+CORES=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "2")
+echo "使用 $CORES 个核心并行编译..."
+make -j$CORES
 
 echo "✅ 编译完成"
 
@@ -123,15 +300,23 @@ else
     tail -n 5 ../backend.log
 fi
 
-cd ../..
+# 返回项目根目录
+if [ "$(basename $(pwd))" = "build" ]; then
+    cd ../..  # 从 backend/build 返回项目根目录
+else
+    cd ..     # 从 backend 返回项目根目录  
+fi
 
-# 配置Nginx
-echo "🌐 配置Nginx..."
+# 配置Nginx反向代理
+echo "🌐 配置Nginx反向代理..."
 
 # 安装nginx
 if ! command -v nginx &> /dev/null; then
-    echo "安装Nginx..."
-    sudo apt update && sudo apt install -y nginx
+    echo "📦 安装Nginx..."
+    sudo $PKG_INSTALL $NGINX_PKG
+    sudo systemctl enable nginx
+else
+    echo "✅ Nginx已安装"
 fi
 
 # 备份原配置
@@ -180,9 +365,16 @@ server {
 EOF
 
 # 测试并重启nginx
-echo "测试Nginx配置..."
-sudo nginx -t && sudo systemctl restart nginx
-sudo systemctl enable nginx
+echo "🧪 测试Nginx配置..."
+if sudo nginx -t; then
+    echo "✅ Nginx配置语法正确"
+    sudo systemctl restart nginx
+    sudo systemctl enable nginx
+    echo "✅ Nginx服务已重启并设置开机自启"
+else
+    echo "❌ Nginx配置有误，请检查"
+    exit 1
+fi
 
 echo "✅ Nginx配置完成"
 
@@ -245,4 +437,10 @@ echo "echo 'VITE_API_BASE_URL=https://$SERVER_IP' > .env.local"
 echo "npm run dev  # 开发模式"
 echo "# 或"
 echo "npm run build && npm run preview  # 生产模式"
+echo ""
+echo "🐧 Linux系统说明:"
+echo "   后端已在Linux服务器部署完成"
+echo "   前端可在任意环境连接此后端API"
+echo "   支持的前端环境: Linux桌面、Windows、macOS"
+echo "   推荐使用HTTPS连接保证安全性"
 echo "================================" 

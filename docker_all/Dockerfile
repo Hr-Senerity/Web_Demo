@@ -64,13 +64,20 @@ RUN npm run build
 # 阶段3: Nginx代理 + 生产环境
 FROM nginx:bullseye
 
-# 安装必要工具
-RUN apt-get update && apt-get install -y \
+# 配置debian国内镜像源加速
+RUN sed -i 's@http://deb.debian.org@https://mirrors.aliyun.com@g' /etc/apt/sources.list && \
+    sed -i 's@http://security.debian.org@https://mirrors.aliyun.com@g' /etc/apt/sources.list
+
+# 安装必要工具 - 使用镜像源加速和优化选项
+RUN apt-get update -o Acquire::Retries=3 && \
+    apt-get install -y --no-install-recommends \
     gettext \
     curl \
     openssl \
     bash \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get autoremove -y
 
 # 复制后端可执行文件
 COPY --from=backend-builder /app/backend/build/bin/backend /usr/local/bin/
