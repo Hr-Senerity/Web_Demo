@@ -210,6 +210,39 @@ setup_environment() {
     # 进入docker_all目录
     cd docker_all
     
+    # 首先检查并修复可能存在的Windows行结束符问题
+    fix_line_endings() {
+        local file="$1"
+        if [ -f "$file" ]; then
+            # 检查是否包含Windows行结束符
+            if grep -q $'\r' "$file" 2>/dev/null; then
+                echo "🔧 检测到Windows行结束符，正在修复 $file..."
+                # 创建备份并修复
+                cp "$file" "$file.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+                sed -i 's/\r$//' "$file"
+                echo "✅ 行结束符已修复"
+                return 0
+            fi
+        fi
+        return 1
+    }
+    
+    # 修复相关文件的行结束符
+    echo "🔍 检查行结束符格式..."
+    FIXED_ANY=false
+    
+    for file in .env env-template; do
+        if fix_line_endings "$file"; then
+            FIXED_ANY=true
+        fi
+    done
+    
+    if [ "$FIXED_ANY" = "true" ]; then
+        echo "✅ 行结束符修复完成"
+    else
+        echo "✅ 文件格式检查通过"
+    fi
+    
     # 检查环境文件
     if [ ! -f ".env" ]; then
         if [ -f "env-template" ]; then
@@ -264,6 +297,8 @@ EOF
         esac
     else
         echo "✅ 使用现有 .env 配置"
+        # 使用现有配置时也要确保格式正确
+        fix_line_endings ".env"
     fi
     
     # 显示当前配置
@@ -276,7 +311,13 @@ EOF
 
 # SSL证书处理
 handle_ssl_certificates() {
-    source .env
+    # 确保.env文件格式正确后再source
+    if [ -f ".env" ]; then
+        source .env
+    else
+        echo "❌ .env文件不存在"
+        exit 1
+    fi
     
     if [ "$SSL_MODE" = "letsencrypt" ]; then
         echo "🔒 准备Let's Encrypt证书目录..."
@@ -293,10 +334,33 @@ handle_ssl_certificates() {
     fi
 }
 
+# 配置前端API地址
+configure_frontend_api() {
+    echo "⚙️ 配置前端API地址 (一体化部署模式)..."
+    
+    # 从docker_all目录进入前端目录配置环境变量
+    cd ../frontend
+    
+    # 创建生产环境配置 - 一体化部署使用nginx代理
+    cat > .env.production << 'EOF'
+# 一体化部署模式 - 通过nginx代理访问API
+# 空值表示使用相对路径，避免HTTPS混合内容错误
+VITE_API_BASE_URL=
+EOF
+    
+    echo "✅ 前端API配置完成 (使用nginx代理)"
+    
+    # 返回docker_all目录
+    cd ../docker_all
+}
+
 # 部署应用
 deploy_app() {
     echo ""
     echo "🚀 开始部署应用..."
+    
+    # 配置前端API
+    configure_frontend_api
     
     # 停止现有容器
     echo "🛑 停止现有容器..."
@@ -333,8 +397,11 @@ deploy_app() {
             echo "⚠️  后端API可能还在启动中"
         fi
         
-        # 前端测试
-        source .env
+        # 前端测试 - 重新读取.env文件
+        if [ -f ".env" ]; then
+            source .env
+        fi
+        
         if [ "$SSL_MODE" = "none" ]; then
             TEST_URL="http://localhost/health"
         else
@@ -355,7 +422,10 @@ deploy_app() {
 
 # 显示部署结果
 show_result() {
-    source .env
+    # 重新读取.env文件
+    if [ -f ".env" ]; then
+        source .env
+    fi
     
     echo ""
     echo "🎉 部署完成！"

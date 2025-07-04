@@ -59,27 +59,16 @@ configure_nginx() {
     # 根据SSL模式处理配置
     if [ "$SSL_MODE" != "none" ]; then
         # 启用HTTPS重定向
-        sed -i 's|#SSL_REDIRECT_PLACEHOLDER#|return 301 https://$server_name$request_uri;|' /tmp/nginx_env.conf
+        sed -i 's|#SSL_REDIRECT_PLACEHOLDER#|return 301 https://\$server_name\$request_uri;|' /tmp/nginx_env.conf
         
-        # 添加HTTPS服务器配置
-        SSL_SERVER_CONFIG="
+        # 创建SSL服务器配置文件
+        cat > /tmp/ssl_server.conf << 'EOF'
 server {
     listen 443 ssl http2;
-    server_name ${NGINX_HOST};
+    server_name NGINX_HOST_PLACEHOLDER;
     
-    # SSL证书配置"
-        
-        if [ "$SSL_MODE" = "custom" ] || [ "$SSL_MODE" = "self-signed" ]; then
-            SSL_SERVER_CONFIG="$SSL_SERVER_CONFIG
-    ssl_certificate /etc/nginx/ssl/cert.pem;
-    ssl_certificate_key /etc/nginx/ssl/key.pem;"
-        else
-            SSL_SERVER_CONFIG="$SSL_SERVER_CONFIG
-    ssl_certificate /etc/nginx/ssl/fullchain.pem;
-    ssl_certificate_key /etc/nginx/ssl/privkey.pem;"
-        fi
-        
-        SSL_SERVER_CONFIG="$SSL_SERVER_CONFIG
+    # SSL证书配置
+SSL_CERT_PLACEHOLDER
     
     # SSL安全配置
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -92,37 +81,61 @@ server {
     location / {
         root /usr/share/nginx/html;
         index index.html;
-        try_files \$uri \$uri/ /index.html;
+        try_files $uri $uri/ /index.html;
     }
 
     # API代理
     location /api/ {
         proxy_pass http://localhost:8080/api/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
-        
-        # CORS
+
+        # CORS配置
         add_header 'Access-Control-Allow-Origin' '*' always;
         add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
         add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+
+        # 处理预检请求
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '*';
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS';
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';
+            add_header 'Access-Control-Max-Age' 1728000;
+            add_header 'Content-Type' 'text/plain; charset=utf-8';
+            add_header 'Content-Length' 0;
+            return 204;
+        }
     }
 
     # 健康检查
     location /health {
-        return 200 '{\"status\":\"healthy\",\"service\":\"web-demo-ssl\",\"timestamp\":\"\$time_iso8601\"}';
+        return 200 '{"status":"healthy","service":"web-demo-ssl","timestamp":"$time_iso8601"}';
         add_header Content-Type application/json;
         access_log off;
     }
     
     # 安全头
-    add_header X-Frame-Options \"SAMEORIGIN\" always;
-    add_header X-Content-Type-Options \"nosniff\" always;
-    add_header X-XSS-Protection \"1; mode=block\" always;
-}"
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+}
+EOF
         
-        sed -i "s|#SSL_SERVER_PLACEHOLDER#|$SSL_SERVER_CONFIG|" /tmp/nginx_env.conf
+        # 替换占位符
+        sed -i "s/NGINX_HOST_PLACEHOLDER/${NGINX_HOST}/" /tmp/ssl_server.conf
+        
+        if [ "$SSL_MODE" = "custom" ] || [ "$SSL_MODE" = "self-signed" ]; then
+            sed -i "s|SSL_CERT_PLACEHOLDER|    ssl_certificate /etc/nginx/ssl/cert.pem;\n    ssl_certificate_key /etc/nginx/ssl/key.pem;|" /tmp/ssl_server.conf
+        else
+            sed -i "s|SSL_CERT_PLACEHOLDER|    ssl_certificate /etc/nginx/ssl/fullchain.pem;\n    ssl_certificate_key /etc/nginx/ssl/privkey.pem;|" /tmp/ssl_server.conf
+        fi
+        
+        # 将SSL配置插入到主配置文件中
+        sed -i "/#SSL_SERVER_PLACEHOLDER#/r /tmp/ssl_server.conf" /tmp/nginx_env.conf
+        sed -i '/#SSL_SERVER_PLACEHOLDER#/d' /tmp/nginx_env.conf
     else
         # 移除SSL占位符
         sed -i '/#SSL_REDIRECT_PLACEHOLDER#/d' /tmp/nginx_env.conf

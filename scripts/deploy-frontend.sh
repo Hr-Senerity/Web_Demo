@@ -67,6 +67,81 @@ done
 
 echo "✅ 配置文件检查通过"
 
+# 配置前端API地址
+echo ""
+echo "⚙️ 配置后端API地址..."
+echo "前端分离部署模式需要指定后端服务器地址"
+echo ""
+
+# 提供默认选项
+echo "请选择后端API地址配置:"
+echo "1) 输入服务器IP地址"
+echo "2) 使用本地后端 (http://localhost:8080)"
+echo ""
+
+read -p "请选择 (1-2): " api_choice
+
+case $api_choice in
+    1)
+        read -p "请输入服务器IP地址 (如 115.29.168.115): " server_ip
+        API_BASE_URL="https://$server_ip"
+        echo "✅ 使用服务器地址: $API_BASE_URL"
+        ;;
+    2)
+        API_BASE_URL="http://localhost:8080"
+        echo "✅ 使用本地后端地址: $API_BASE_URL"
+        ;;
+    *)
+        echo "❌ 无效选择，使用本地后端地址"
+        API_BASE_URL="http://localhost:8080"
+        ;;
+esac
+
+# 创建生产环境配置
+echo "📝 创建前端环境配置..."
+cat > .env.production << EOF
+# 前端分离部署模式 - 连接独立后端服务器
+VITE_API_BASE_URL=$API_BASE_URL
+EOF
+
+# 动态替换配置文件中的Server_IP占位符
+echo "🔧 替换配置文件中的Server_IP占位符..."
+
+# 备份原始文件
+cp nginx.conf nginx.conf.backup
+cp src/config/api.ts src/config/api.ts.backup
+cp docker-compose.yml docker-compose.yml.backup
+
+# 根据选择的API地址提取IP或使用localhost
+if [[ "$API_BASE_URL" =~ ^https?://([^:/]+) ]]; then
+    SERVER_IP="${BASH_REMATCH[1]}"
+    PROXY_PROTOCOL="http"
+    PROXY_PORT="80"
+    if [[ "$API_BASE_URL" =~ ^https:// ]]; then
+        PROXY_PORT="443"
+        PROXY_PROTOCOL="https"
+    fi
+else
+    SERVER_IP="localhost"
+    PROXY_PROTOCOL="http"
+    PROXY_PORT="8080"
+fi
+
+echo "   替换目标: Server_IP -> $SERVER_IP"
+
+# 替换nginx.conf中的Server_IP
+sed -i "s/Server_IP:80/$SERVER_IP:$PROXY_PORT/g" nginx.conf
+sed -i "s/proxy_set_header Host Server_IP/proxy_set_header Host $SERVER_IP/g" nginx.conf
+
+# 替换api.ts中的Server_IP
+sed -i "s|http://Server_IP|$API_BASE_URL|g" src/config/api.ts
+
+# 替换docker-compose.yml中的Server_IP
+sed -i "s|VITE_API_BASE_URL=http://Server_IP|VITE_API_BASE_URL=$API_BASE_URL|g" docker-compose.yml
+
+echo "✅ 前端API配置完成: $API_BASE_URL"
+echo "✅ 配置文件占位符替换完成"
+
 # 清理旧容器
 echo "🧹 清理旧容器和镜像..."
 docker-compose down 2>/dev/null || true
@@ -146,8 +221,15 @@ echo "   进入容器: docker-compose exec frontend sh"
 echo ""
 echo "📝 注意事项:"
 echo "   - 前端应用运行在端口 3000"
-echo "   - 如需连接后端API，请先部署后端服务"
-echo "   - 修改 nginx.conf 中的API代理配置以连接后端"
+echo "   - 配置文件已自动替换Server_IP占位符"
+echo "   - 原始文件已备份为 *.backup"
+echo ""
+echo "🔄 配置恢复:"
+echo "   如需恢复原始配置:"
+echo "   cd frontend"
+echo "   mv nginx.conf.backup nginx.conf"
+echo "   mv src/config/api.ts.backup src/config/api.ts"
+echo "   mv docker-compose.yml.backup docker-compose.yml"
 echo "================================"
 
 cd .. 

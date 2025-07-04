@@ -8,8 +8,10 @@ export const config = {
   
   // 生产环境配置
   production: {
-    // 服务器部署地址 - 已更新为实际服务器IP
-    apiBaseURL: 'http://Server_IP',
+    // 支持构建时环境变量覆盖API地址
+    // VITE_API_BASE_URL: 构建时指定API地址（用于前后端分离部署）
+    // 未指定时使用相对路径（用于一体化部署）
+    apiBaseURL: import.meta.env.VITE_API_BASE_URL || '',
     timeout: 15000,
   }
 } as const;

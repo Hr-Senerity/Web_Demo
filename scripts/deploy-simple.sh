@@ -32,6 +32,15 @@ fi
 
 echo "✅ 系统依赖检查完成"
 
+# 检查并修复可能存在的Windows行结束符问题
+echo "🔍 检查配置文件格式..."
+if [ -f ".env" ] && grep -q $'\r' ".env" 2>/dev/null; then
+    echo "🔧 检测到Windows行结束符，正在修复..."
+    cp ".env" ".env.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+    sed -i 's/\r$//' ".env"
+    echo "✅ 行结束符已修复"
+fi
+
 # 安装C++依赖库
 echo "📦 安装C++依赖库..."
 
@@ -43,20 +52,16 @@ else
     echo "✅ nlohmann-json已安装"
 fi
 
-# 检查并安装cpp-httplib (header-only)
-if [ ! -f "/usr/local/include/httplib.h" ] && [ ! -f "/usr/include/httplib.h" ]; then
-    echo "安装cpp-httplib (header-only)..."
-    # 尝试系统包（仅在较新的Ubuntu版本中可用）
-    if sudo apt install -y libcpp-httplib-dev 2>/dev/null; then
-        echo "✅ 使用系统包安装cpp-httplib"
-    else
-        echo "📦 手动下载cpp-httplib header文件..."
-        sudo curl -L -o /usr/local/include/httplib.h \
-            https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h
-        echo "✅ cpp-httplib安装完成"
-    fi
+# 检查cpp-httplib (header-only) - 现在使用项目本地文件
+# 注意：脚本从scripts目录运行，所以使用相对路径
+if [ -f "../backend/include/httplib.h" ]; then
+    echo "✅ cpp-httplib (使用项目本地文件: backend/include/httplib.h)"
 else
-    echo "✅ cpp-httplib已安装"
+    echo "❌ 未找到cpp-httplib header文件"
+    echo "💡 请确保 httplib.h 文件存在于 backend/include/ 目录中"
+    echo "   可以从以下地址下载:"
+    echo "   curl -L -o ../backend/include/httplib.h https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h"
+    exit 1
 fi
 
 echo "✅ C++依赖库安装完成"
@@ -199,12 +204,16 @@ else
     echo "❌ Nginx代理失败"
 fi
 
+# 获取服务器IP
+SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')
+
 echo ""
-echo "🎉 部署完成！"
+echo "🎉 后端部署完成！"
 echo "================================"
-echo "🌐 服务器地址: http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')"
-echo "🔍 健康检查: http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')/health"
-echo "📡 API地址: http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP')/api/users"
+echo "🔒 HTTPS地址: https://$SERVER_IP (推荐)"
+echo "🌐 HTTP地址: http://$SERVER_IP (备用)"
+echo "🔍 健康检查: https://$SERVER_IP/health"
+echo "📡 API地址: https://$SERVER_IP/api/users"
 echo ""
 echo "📊 服务状态:"
 echo "   后端PID: $(cat backend/backend.pid 2>/dev/null || echo '未知')"
@@ -216,4 +225,24 @@ echo "   查看日志: tail -f backend/backend.log"
 echo "   停止后端: kill \$(cat backend/backend.pid)"
 echo "   重启后端: cd backend/build && nohup ./bin/backend > ../backend.log 2>&1 & echo \$! > ../backend.pid && disown \$!"
 echo "   Nginx重启: sudo systemctl restart nginx"
+echo ""
+echo "💡 前端连接配置:"
+echo "================================"
+echo "如需本地运行前端连接此后端，请在前端目录执行:"
+echo ""
+echo "# 方法1: 使用环境变量构建"
+echo "cd frontend"
+echo "VITE_API_BASE_URL=https://$SERVER_IP npm run build"
+echo "npm run preview"
+echo ""
+echo "# 方法2: 使用部署脚本自动配置"
+echo "./scripts/deploy-frontend.sh"
+echo "# 选择选项1，输入IP：$SERVER_IP"
+echo ""
+echo "# 方法3: 创建环境配置文件"
+echo "cd frontend"
+echo "echo 'VITE_API_BASE_URL=https://$SERVER_IP' > .env.local"
+echo "npm run dev  # 开发模式"
+echo "# 或"
+echo "npm run build && npm run preview  # 生产模式"
 echo "================================" 

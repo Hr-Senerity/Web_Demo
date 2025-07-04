@@ -21,8 +21,8 @@ services:
       # 数据持久化
       - app-data:/app/data
       - app-logs:/app/logs
-      # SSL证书 (可选)
-      - ../ssl:/etc/nginx/ssl:ro
+      # SSL证书 (可选 - 如果有外部证书，取消注释下一行)
+      # - ../ssl:/etc/nginx/ssl:ro
     networks:
       - web-demo-network
     healthcheck:

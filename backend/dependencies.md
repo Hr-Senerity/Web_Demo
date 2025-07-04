@@ -13,9 +13,9 @@
 
 2. **cpp-httplib** (HTTP客户端/服务器库)
    - 版本要求: >= 0.18.0
-   - Header-only库
-   - Ubuntu 24.04+: `sudo apt install libcpp-httplib-dev`
-   - 其他版本: 手动下载header文件到 `/usr/local/include/httplib.h`
+   - Header-only库，已包含在项目中
+   - 文件位置: `backend/include/httplib.h`
+   - 无需额外安装
 
 ### 系统依赖
 
@@ -44,13 +44,8 @@ sudo apt update && sudo apt install -y \
     libssl-dev \
     zlib1g-dev
 
-# 安装cpp-httplib
-# 方法1: 尝试系统包（Ubuntu 24.04+）
-sudo apt install libcpp-httplib-dev
-
-# 方法2: 手动下载（适用于所有版本）
-sudo curl -L -o /usr/local/include/httplib.h \
-    https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h
+# cpp-httplib已包含在项目中，无需安装
+# 文件位置: backend/include/httplib.h
 ```
 
 ## Docker 支持
@@ -78,10 +73,10 @@ sudo apt update && sudo apt install nlohmann-json3-dev
 
 ### 找不到httplib.h
 ```bash
-# 检查文件是否存在
-ls -la /usr/local/include/httplib.h /usr/include/httplib.h
+# 检查项目文件是否存在
+ls -la backend/include/httplib.h
 
-# 重新下载
-sudo curl -L -o /usr/local/include/httplib.h \
+# 如果文件不存在，从官方仓库下载
+curl -L -o backend/include/httplib.h \
     https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h
 ``` 

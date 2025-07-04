@@ -12,7 +12,7 @@ HttpServer::~HttpServer() = default;
 
 void HttpServer::start() {
     std::cout << "HTTP服务器监听端口: " << port_ << std::endl;
-    server_.listen("localhost", port_);
+    server_.listen("0.0.0.0", port_);
 }
 
 void HttpServer::stop() {

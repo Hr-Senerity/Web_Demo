@@ -3,7 +3,7 @@
 # ====================================
 
 # 阶段1: 后端构建
-FROM gcc:11-bullseye as backend-builder
+FROM gcc:10-bullseye as backend-builder
 
 WORKDIR /app/backend
 
@@ -27,12 +27,8 @@ RUN apt-get update && apt-get install -y \
     nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装cpp-httplib (header-only库)
-# 由于Debian 11没有cpp-httplib包，我们手动下载header文件
-RUN echo "📦 安装cpp-httplib (header-only)..." && \
-    curl -L -o /usr/local/include/httplib.h \
-    https://raw.githubusercontent.com/yhirose/cpp-httplib/v0.18.7/httplib.h && \
-    echo "✅ cpp-httplib安装完成"
+# cpp-httplib (header-only库) 现在包含在项目源码中
+# 文件位置: backend/include/httplib.h (通过COPY命令复制到容器)
 
 # 复制后端源码并构建
 COPY backend/ ./
@@ -66,14 +62,15 @@ COPY shared/ ../shared/
 RUN npm run build
 
 # 阶段3: Nginx代理 + 生产环境
-FROM nginx:alpine
+FROM nginx:bullseye
 
 # 安装必要工具
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     gettext \
     curl \
     openssl \
-    bash
+    bash \
+    && rm -rf /var/lib/apt/lists/*
 
 # 复制后端可执行文件
 COPY --from=backend-builder /app/backend/build/bin/backend /usr/local/bin/

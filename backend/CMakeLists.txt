@@ -23,21 +23,35 @@ if(NOT NLOHMANN_JSON_FOUND)
     endif()
 endif()
 
-# 查找httplib - 由于是header-only库，主要通过路径查找
-find_path(HTTPLIB_INCLUDE_DIR 
-    NAMES httplib.h
-    PATHS 
-        /usr/local/include
-        /usr/include
-        ${CMAKE_PREFIX_PATH}/include
-    DOC "cpp-httplib header file"
-)
-
-if(NOT HTTPLIB_INCLUDE_DIR)
-    # 回退到vcpkg方式
-    find_package(httplib CONFIG REQUIRED)
+# 查找httplib - 优先使用项目本地的header文件
+set(HTTPLIB_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
+if(EXISTS "${HTTPLIB_INCLUDE_DIR}/httplib.h")
+    message(STATUS "Found cpp-httplib header in project: ${HTTPLIB_INCLUDE_DIR}/httplib.h")
+    set(HTTPLIB_FOUND TRUE)
 else()
-    message(STATUS "Found cpp-httplib header at: ${HTTPLIB_INCLUDE_DIR}")
+    # 备用：在系统路径中查找
+    find_path(HTTPLIB_INCLUDE_DIR 
+        NAMES httplib.h
+        PATHS 
+            /usr/local/include
+            /usr/include
+            ${CMAKE_PREFIX_PATH}/include
+        DOC "cpp-httplib header file"
+    )
+    
+    if(HTTPLIB_INCLUDE_DIR)
+        message(STATUS "Found cpp-httplib header in system: ${HTTPLIB_INCLUDE_DIR}")
+        set(HTTPLIB_FOUND TRUE)
+    else()
+        # 最后回退到vcpkg方式
+        find_package(httplib CONFIG QUIET)
+        if(httplib_FOUND)
+            set(HTTPLIB_FOUND TRUE)
+            message(STATUS "Found cpp-httplib via vcpkg")
+        else()
+            message(FATAL_ERROR "cpp-httplib not found! Please ensure httplib.h is in include/ directory")
+        endif()
+    endif()
 endif()
 
 # 添加可执行文件
@@ -49,11 +63,6 @@ add_executable(backend
 
 # 包含头文件目录
 target_include_directories(backend PRIVATE include)
-
-# 如果找到了系统的httplib.h，添加include路径
-if(HTTPLIB_INCLUDE_DIR)
-    target_include_directories(backend PRIVATE ${HTTPLIB_INCLUDE_DIR})
-endif()
 
 # 链接库 - 适配不同的查找方式
 if(NLOHMANN_JSON_FOUND AND PkgConfig_FOUND)
@@ -73,13 +82,17 @@ endif()
 if(TARGET httplib::httplib)
     target_link_libraries(backend PRIVATE httplib::httplib)
 else()
-    # header-only，不需要链接，只需要include路径（已在上面处理）
-    message(STATUS "Using header-only cpp-httplib")
+    # header-only，已经通过include目录包含
+    message(STATUS "Using header-only cpp-httplib from: ${HTTPLIB_INCLUDE_DIR}")
 endif()
 
-# Windows特定设置
+# 平台特定设置
 if(WIN32)
     target_link_libraries(backend PRIVATE ws2_32)
+else()
+    # Linux/Unix系统需要链接pthread库（httplib依赖）
+    find_package(Threads REQUIRED)
+    target_link_libraries(backend PRIVATE Threads::Threads)
 endif()
 
 # 编译选项
