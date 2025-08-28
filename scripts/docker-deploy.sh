@@ -341,7 +341,7 @@ handle_ssl_certificates() {
     
         if [ ! -f "../ssl/fullchain.pem" ] || [ ! -f "../ssl/privkey.pem" ]; then
             echo "⚠️  未找到现有的 Let's Encrypt 证书，尝试自动申请..."
-            
+    
             # 安装 certbot（如果没有）
             if ! command -v certbot >/dev/null 2>&1; then
                 echo "📦 正在安装 certbot..."
@@ -349,8 +349,15 @@ handle_ssl_certificates() {
                 sudo apt-get install -y certbot
             fi
     
+            # 让用户输入邮箱
+            read -p "📧 请输入你的邮箱 (用于注册 Let's Encrypt 账号): " user_email
+            if [ -z "$user_email" ]; then
+                echo "❌ 邮箱不能为空，请重新运行脚本。"
+                exit 1
+            fi
+    
             # 自动申请证书
-            sudo certbot certonly --standalone --non-interactive --agree-tos -m your_email@example.com -d "$NGINX_HOST"
+            sudo certbot certonly --standalone --non-interactive --agree-tos -m "$user_email" -d "$NGINX_HOST"
     
             # 拷贝证书到项目目录
             if [ -f "/etc/letsencrypt/live/$NGINX_HOST/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/$NGINX_HOST/privkey.pem" ]; then
@@ -365,6 +372,7 @@ handle_ssl_certificates() {
             echo "✅ 已找到现有证书，继续使用。"
         fi
     fi
+
 
 }
 
