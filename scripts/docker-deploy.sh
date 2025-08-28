@@ -336,18 +336,36 @@ handle_ssl_certificates() {
     fi
     
     if [ "$SSL_MODE" = "letsencrypt" ]; then
-        echo "🔒 准备Let's Encrypt证书目录..."
+        echo "🔒 准备 Let's Encrypt 证书目录..."
         mkdir -p ../ssl
-        
-        if [ ! -f "../ssl/fullchain.pem" ]; then
-            echo "⚠️  Let's Encrypt证书未找到"
-            echo "💡 请使用以下命令获取证书:"
-            echo "   certbot certonly --standalone -d $NGINX_HOST"
-            echo "   然后将证书复制到 ../ssl/ 目录"
-            read -p "按Enter继续 (将使用自签名证书替代)..." 
-            sed -i "s/SSL_MODE=letsencrypt/SSL_MODE=custom/" .env
+    
+        if [ ! -f "../ssl/fullchain.pem" ] || [ ! -f "../ssl/privkey.pem" ]; then
+            echo "⚠️  未找到现有的 Let's Encrypt 证书，尝试自动申请..."
+            
+            # 安装 certbot（如果没有）
+            if ! command -v certbot >/dev/null 2>&1; then
+                echo "📦 正在安装 certbot..."
+                sudo apt-get update -y
+                sudo apt-get install -y certbot
+            fi
+    
+            # 自动申请证书
+            sudo certbot certonly --standalone --non-interactive --agree-tos -m your_email@example.com -d "$NGINX_HOST"
+    
+            # 拷贝证书到项目目录
+            if [ -f "/etc/letsencrypt/live/$NGINX_HOST/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/$NGINX_HOST/privkey.pem" ]; then
+                echo "✅ 证书申请成功，复制到 ../ssl/"
+                cp "/etc/letsencrypt/live/$NGINX_HOST/fullchain.pem" ../ssl/
+                cp "/etc/letsencrypt/live/$NGINX_HOST/privkey.pem" ../ssl/
+            else
+                echo "❌ 自动申请证书失败，请检查域名解析是否正确。"
+                exit 1
+            fi
+        else
+            echo "✅ 已找到现有证书，继续使用。"
         fi
     fi
+
 }
 
 # 配置前端API地址
